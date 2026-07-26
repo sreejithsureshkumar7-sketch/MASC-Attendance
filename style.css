@@ -11,3 +11,5 @@
 .legend-row b{min-width:120px}
 #pdfGridPreview table input{width:90px;font-size:12px;padding:4px}
 button.dismiss{background:#64748b}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:700px){.grid-2{grid-template-columns:1fr}}

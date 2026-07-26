@@ -3,6 +3,7 @@ let currentUser = null;
 let studentsData = [];
 let reportRows = [];
 let chart = null;
+let boysChart = null, girlsChart = null, deptChart = null;
 let deferredPrompt = null;
 
 if ("serviceWorker" in navigator) {
@@ -138,6 +139,7 @@ async function saveStudent(){
     const student = {
       name:$("sName").value.trim(), roll:$("sRoll").value.trim(), regNo:$("sReg").value.trim(),
       department:$("sDept").value, year:$("sYear").value, section:$("sSection").value.trim(),
+      gender:$("sGender").value,
       phone:$("sPhone").value.trim(), parentPhone:$("sParentPhone").value.trim(),
       email:$("sEmail").value.trim(), address:$("sAddress").value.trim(),
       createdAt:new Date().toISOString(), week:getWeekKey(new Date()),
@@ -155,7 +157,7 @@ async function saveStudent(){
     await db.collection("students").add(student);
     toast("Student saved in Firebase ✅");
     document.querySelectorAll("#students input").forEach(i=>i.value="");
-    $("sDept").value=""; $("sYear").value="";
+    $("sDept").value=""; $("sYear").value=""; $("sGender").value="";
     loadStudents();
   }catch(err){ alert("Firebase save error: " + err.message); console.error(err); }
 }
@@ -228,14 +230,65 @@ async function saveAttendance(){
 async function loadDashboard(){
   const sSnap = await db.collection("students").get();
   const aSnap = await db.collection("attendance").get();
-  const students = sSnap.docs.map(d=>d.data());
+  const students = sSnap.docs.map(d=>({id:d.id, ...d.data()}));
+  const studentById = {}; students.forEach(s=> studentById[s.id] = s);
   const attendance = aSnap.docs.map(d=>d.data());
+
+  const todayStr = new Date().toISOString().slice(0,10); // matches aDate input format (YYYY-MM-DD)
+  const todayAttendance = attendance.filter(a=>a.date === todayStr);
+
   $("totalStudents").innerText = students.length;
-  $("totalPresent").innerText = attendance.filter(a=>a.status==="Present").length;
-  $("totalAbsent").innerText = attendance.filter(a=>a.status==="Absent").length;
-  const avg = attendance.length ? Math.round((attendance.filter(a=>a.status==="Present").length / attendance.length)*100) : 0;
-  $("avgPercent").innerText = avg + "%";
+  // Each attendance record = 1 period = 1 hour, so count of records = total hours today
+  const todayPresentHrs = todayAttendance.filter(a=>a.status==="Present").length;
+  const todayAbsentHrs = todayAttendance.filter(a=>a.status==="Absent").length;
+  $("totalPresent").innerText = todayPresentHrs;
+  $("totalAbsent").innerText = todayAbsentHrs;
+  const todayAvg = todayAttendance.length ? Math.round((todayPresentHrs/todayAttendance.length)*100) : 0;
+  $("avgPercent").innerText = todayAvg + "%";
+
   renderDashboardChart(attendance, students);
+  renderGenderCharts(todayAttendance, studentById);
+  renderDepartmentChart(todayAttendance, students);
+}
+
+const DEPT_COLORS = {
+  "Computer Science":"#6366f1", "BCA":"#f59e0b", "B.Com":"#10b981", "BBA":"#ef4444",
+  "Mathematics":"#3b82f6", "English":"#ec4899", "Bio Tech":"#14b8a6", "M.com":"#a855f7",
+  "Hoteal Management":"#f97316"
+};
+
+function renderGenderCharts(todayAttendance, studentById){
+  const boys = { Present:0, Absent:0 }, girls = { Present:0, Absent:0 };
+  todayAttendance.forEach(a=>{
+    const s = studentById[a.studentId];
+    if(!s || !s.gender) return;
+    if(s.gender === "Male" && boys[a.status] !== undefined) boys[a.status]++;
+    else if(s.gender === "Female" && girls[a.status] !== undefined) girls[a.status]++;
+  });
+  if(boysChart) boysChart.destroy();
+  boysChart = new Chart($("boysChart"), {
+    type:"doughnut",
+    data:{ labels:["Present (Hrs)","Absent (Hrs)"], datasets:[{ data:[boys.Present, boys.Absent], backgroundColor:["#22c55e","#ef4444"] }] },
+    options:{ responsive:true }
+  });
+  if(girlsChart) girlsChart.destroy();
+  girlsChart = new Chart($("girlsChart"), {
+    type:"doughnut",
+    data:{ labels:["Present (Hrs)","Absent (Hrs)"], datasets:[{ data:[girls.Present, girls.Absent], backgroundColor:["#22c55e","#ef4444"] }] },
+    options:{ responsive:true }
+  });
+}
+
+function renderDepartmentChart(todayAttendance, students){
+  const depts = [...new Set(students.map(s=>s.department).filter(Boolean))];
+  const presentCounts = depts.map(d=> todayAttendance.filter(a=>a.department===d && a.status==="Present").length);
+  const colors = depts.map(d=> DEPT_COLORS[d] || "#94a3b8");
+  if(deptChart) deptChart.destroy();
+  deptChart = new Chart($("departmentChart"), {
+    type:"bar",
+    data:{ labels:depts, datasets:[{ label:"Today Present (Hrs)", data:presentCounts, backgroundColor:colors }] },
+    options:{ responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } }
+  });
 }
 
 async function generateReport(){

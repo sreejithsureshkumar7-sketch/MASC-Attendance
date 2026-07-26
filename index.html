@@ -71,13 +71,27 @@
       <div id="dashboard" class="page">
         <div class="stats">
           <div class="stat"><b id="totalStudents">0</b><span>Total Students</span></div>
-          <div class="stat"><b id="totalPresent">0</b><span>Present</span></div>
-          <div class="stat"><b id="totalAbsent">0</b><span>Absent</span></div>
-          <div class="stat"><b id="avgPercent">0%</b><span>Average</span></div>
+          <div class="stat"><b id="totalPresent">0</b><span>Today Present (Hrs)</span></div>
+          <div class="stat"><b id="totalAbsent">0</b><span>Today Absent (Hrs)</span></div>
+          <div class="stat"><b id="avgPercent">0%</b><span>Today %</span></div>
         </div>
         <div class="card">
           <h2>Weekly / Monthly Analytics</h2>
           <canvas id="dashboardChart"></canvas>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h2>Boys — Today</h2>
+            <canvas id="boysChart"></canvas>
+          </div>
+          <div class="card">
+            <h2>Girls — Today</h2>
+            <canvas id="girlsChart"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <h2>All Departments — Today Present (Hrs)</h2>
+          <canvas id="departmentChart"></canvas>
         </div>
       </div>
 
@@ -96,6 +110,10 @@
             <select id="sYear">
               <option value="">Select Year</option>
               <option>I Year</option><option>II Year</option><option>III Year</option>
+            </select>
+            <select id="sGender">
+              <option value="">Select Gender</option>
+              <option>Male</option><option>Female</option>
             </select>
             <input id="sSection" placeholder="Section"/>
             <input id="sPhone" placeholder="Student Phone"/>
