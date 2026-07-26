@@ -13,6 +13,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
   <div id="toast"></div>
@@ -232,6 +233,30 @@
           </div>
           <button onclick="saveTimetableEntry()">Add to Timetable</button>
         </div>
+
+        <div class="card">
+          <h2>Or Upload Timetable PDF</h2>
+          <p>Excel/Word la irundhu "Export as PDF" panna file venum (scanned photo work aagathu). Upload pannina udane, ella periods um automatic ah detect pannum — save pannurathukku munnadi neenga confirm pannanum.</p>
+          <input type="file" id="ttPdfFile" accept="application/pdf"/>
+          <button onclick="handleTimetablePdfUpload()">Upload &amp; Detect</button>
+
+          <div id="pdfPreviewSection" class="hidden">
+            <h3>1. Detected Grid (check pannunga, thappu irundha idhula edit pannalam)</h3>
+            <div id="pdfGridPreview" class="table-wrap"></div>
+            <button onclick="rescanPdfCodes()">Re-scan Codes (edit pannitta pinnadi click pannunga)</button>
+
+            <h3>2. Ivvalavu Code um ethukku nu sollunga (Department + Year)</h3>
+            <div id="pdfLegendForm"></div>
+
+            <h3>3. Day Order → Weekday</h3>
+            <p>Unga college "Day Order" rotate aagum na, indha week ku eppadi irukku nu sollunga.</p>
+            <div id="pdfDayOrderForm"></div>
+
+            <button onclick="confirmPdfTimetable()">✅ Confirm & Save Timetable</button>
+            <button class="dismiss" onclick="cancelPdfPreview()">Cancel</button>
+          </div>
+        </div>
+
         <div class="card">
           <h2>My Timetable</h2>
           <div class="table-wrap">

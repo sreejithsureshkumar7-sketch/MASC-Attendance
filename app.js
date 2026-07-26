@@ -450,6 +450,240 @@ async function deleteTimetableEntry(id){
 }
 
 // ==========================================================
+// PDF TIMETABLE UPLOAD — parse grid, then staff reviews &
+// maps class-codes (e.g. "IICS(LAB)") to Department/Year
+// before anything is saved to Firestore.
+// ==========================================================
+const DAY_ORDER_LABELS = ["I","II","III","IV","V","VI"];
+const DEFAULT_WEEKDAY_FOR_DAYORDER = { "I":1, "II":2, "III":3, "IV":4, "V":5, "VI":6 }; // Mon..Sat
+let pdfParsedGrid = null;      // [{dayLabel, cells:[periodTexts...]}]
+let pdfCodeLegendDraft = {};   // code -> {department, year, isLab, subject}
+let pdfDayWeekdayDraft = {};   // dayLabel -> weekday number
+
+async function handleTimetablePdfUpload(){
+  try{
+    const file = $("ttPdfFile").files[0];
+    if(!file){ alert("PDF file select pannunga"); return; }
+    if(typeof pdfjsLib === "undefined"){ alert("PDF library load aaga la. Internet check panni page reload pannunga."); return; }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    toast("PDF padikkurom...");
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let items = [];
+    for(let p=1; p<=pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      content.items.forEach(it=>{
+        if(it.str.trim()) items.push({ text: it.str.trim(), x: it.transform[4], y: it.transform[5] });
+      });
+    }
+    if(items.length === 0){
+      alert("PDF la text edukka mudiyala. Idhu scanned photo/image PDF ah irukalam — Excel/Word la irundhu 'Export/Save as PDF' panni try pannunga.");
+      return;
+    }
+    const grid = buildGridFromItems(items);
+    if(!grid || grid.length === 0){
+      alert("Timetable grid clear ah detect panna mudiyala. Format vera ma maadhiri irukalam. Manual ah 'Add to Timetable' form use pannunga, illa vera PDF try pannunga.");
+      return;
+    }
+    await showPdfPreview(grid);
+  }catch(err){ alert("PDF parse error: " + err.message); console.error(err); }
+}
+
+function buildGridFromItems(items){
+  // 1. Cluster text items into visual rows using Y position (PDF y grows upward)
+  const rows = [];
+  items.slice().sort((a,b)=> b.y - a.y).forEach(it=>{
+    let row = rows.find(r=> Math.abs(r.y - it.y) <= 4);
+    if(!row){ row = { y: it.y, items: [] }; rows.push(row); }
+    row.items.push(it);
+  });
+  rows.forEach(r=> r.items.sort((a,b)=> a.x - b.x));
+
+  // 2. Find the header row: must contain "HOUR" and several Roman-numeral column headers
+  const headerRowIdx = rows.findIndex(r=>{
+    const txt = r.items.map(i=>i.text).join(" ").toUpperCase();
+    return txt.includes("HOUR");
+  });
+  if(headerRowIdx === -1) return null;
+  const headerRow = rows[headerRowIdx];
+  const periodHeaders = headerRow.items.filter(i=> /^(I|II|III|IV|V)$/i.test(i.text));
+  if(periodHeaders.length < 3) return null;
+  const colAnchors = periodHeaders.map(h=>h.x);
+
+  // 3. Data rows after the header: first cell = Day Order label (I..VI), rest = period cell text
+  const grid = [];
+  rows.slice(headerRowIdx+1).forEach(r=>{
+    if(r.items.length === 0) return;
+    const first = r.items[0];
+    if(!/^(I|II|III|IV|V|VI)$/i.test(first.text)) return; // skip title/footer noise rows
+    const dayLabel = first.text.toUpperCase();
+    const cells = colAnchors.map(()=> "");
+    r.items.slice(1).forEach(it=>{
+      let bestIdx = 0, bestDist = Infinity;
+      colAnchors.forEach((ax,idx)=>{
+        const d = Math.abs(ax - it.x);
+        if(d < bestDist){ bestDist = d; bestIdx = idx; }
+      });
+      cells[bestIdx] = (cells[bestIdx] ? cells[bestIdx] + " " : "") + it.text;
+    });
+    grid.push({ dayLabel, cells });
+  });
+  return grid;
+}
+
+async function showPdfPreview(grid){
+  pdfParsedGrid = grid;
+  pdfDayWeekdayDraft = {};
+  grid.forEach(r=>{ pdfDayWeekdayDraft[r.dayLabel] = DEFAULT_WEEKDAY_FOR_DAYORDER[r.dayLabel] ?? 1; });
+  renderPdfGridInputs(grid);
+  renderPdfDayOrderForm(grid);
+  $("pdfPreviewSection").classList.remove("hidden");
+  await rescanPdfCodes();
+}
+
+function renderPdfGridInputs(grid){
+  $("pdfGridPreview").innerHTML = `
+    <table><thead><tr><th>Day Order</th>${[1,2,3,4,5].map(p=>`<th>Period ${p}</th>`).join("")}</tr></thead>
+    <tbody>
+    ${grid.map((r,ri)=>`<tr><td><b>${r.dayLabel}</b></td>${[0,1,2,3,4].map(ci=>`
+      <td><input id="gridCell_${ri}_${ci}" value="${escapeAttr(r.cells[ci]||"")}"/></td>`).join("")}</tr>`).join("")}
+    </tbody></table>`;
+}
+
+function readGridFromInputs(){
+  pdfParsedGrid.forEach((r,ri)=>{
+    r.cells = r.cells.map((c,ci)=>{
+      const el = document.getElementById(`gridCell_${ri}_${ci}`);
+      return el ? el.value.trim() : c;
+    });
+  });
+}
+
+async function rescanPdfCodes(){
+  readGridFromInputs();
+  const codesSet = new Set();
+  pdfParsedGrid.forEach(r=> r.cells.forEach(c=>{ if(c && c.trim()) codesSet.add(c.trim()); }));
+  const codes = [...codesSet];
+
+  let existingLegend = {};
+  try{
+    const snap = await db.collection("classCodeLegend").get();
+    snap.docs.forEach(d=>{ existingLegend[d.id] = d.data(); });
+  }catch(e){ console.error(e); }
+
+  const prevDraft = pdfCodeLegendDraft;
+  pdfCodeLegendDraft = {};
+  codes.forEach(code=>{
+    if(prevDraft[code]){ pdfCodeLegendDraft[code] = prevDraft[code]; return; } // keep edits already made
+    const key = code.toUpperCase();
+    const existing = existingLegend[key];
+    const guessedLab = /\(LAB\)/i.test(code);
+    const guessedYear = (code.match(/^(III|II|I)/i) || [,""])[1].toUpperCase();
+    const yearMap = { "I":"I Year", "II":"II Year", "III":"III Year" };
+    pdfCodeLegendDraft[code] = existing || { department:"", year: yearMap[guessedYear] || "", isLab: guessedLab, subject: code };
+  });
+
+  renderPdfLegendForm(codes);
+  toast(`${codes.length} unique class-code(s) found`);
+}
+
+function renderPdfLegendForm(codes){
+  const deptOptions = ["Computer Science","BCA","B.Com","BBA","Mathematics","English","Bio Tech","M.com","Hoteal Management"];
+  const yearOptions = ["I Year","II Year","III Year"];
+  $("pdfLegendForm").innerHTML = codes.map(code=>{
+    const leg = pdfCodeLegendDraft[code];
+    return `
+    <div class="legend-row">
+      <b>${code}</b>
+      <select onchange="updateLegendDraft('${escapeAttr(code)}','department',this.value)">
+        <option value="">Dept?</option>
+        ${deptOptions.map(d=>`<option ${leg.department===d?"selected":""}>${d}</option>`).join("")}
+      </select>
+      <select onchange="updateLegendDraft('${escapeAttr(code)}','year',this.value)">
+        <option value="">Year?</option>
+        ${yearOptions.map(y=>`<option ${leg.year===y?"selected":""}>${y}</option>`).join("")}
+      </select>
+      <input value="${escapeAttr(leg.subject||code)}" placeholder="Subject label" onchange="updateLegendDraft('${escapeAttr(code)}','subject',this.value)"/>
+      <label><input type="checkbox" ${leg.isLab?"checked":""} onchange="updateLegendDraft('${escapeAttr(code)}','isLab',this.checked)"/> Lab</label>
+    </div>`;
+  }).join("");
+}
+
+function renderPdfDayOrderForm(grid){
+  const weekdays = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  $("pdfDayOrderForm").innerHTML = grid.map(r=>`
+    <div class="legend-row">
+      <b>Day Order ${r.dayLabel}</b> =
+      <select onchange="pdfDayWeekdayDraft['${r.dayLabel}']=parseInt(this.value)">
+        ${weekdays.map((w,i)=>`<option value="${i}" ${pdfDayWeekdayDraft[r.dayLabel]===i?"selected":""}>${w}</option>`).join("")}
+      </select>
+    </div>`).join("");
+}
+
+function updateLegendDraft(code, field, value){
+  if(!pdfCodeLegendDraft[code]) return;
+  pdfCodeLegendDraft[code][field] = value;
+}
+
+function escapeAttr(s){ return String(s).replace(/"/g,"&quot;"); }
+
+function cancelPdfPreview(){
+  $("pdfPreviewSection").classList.add("hidden");
+  pdfParsedGrid = null; pdfCodeLegendDraft = {}; pdfDayWeekdayDraft = {};
+  $("ttPdfFile").value = "";
+}
+
+async function confirmPdfTimetable(){
+  try{
+    if(!pdfParsedGrid){ return; }
+    readGridFromInputs();
+    const usedCodes = new Set();
+    pdfParsedGrid.forEach(r=> r.cells.forEach(c=>{ if(c && c.trim()) usedCodes.add(c.trim()); }));
+    const missingMapping = [...usedCodes].filter(c=> !pdfCodeLegendDraft[c]);
+    if(missingMapping.length > 0){
+      alert("Grid edit pannitinga, aana pudhu code(s) irukku: " + missingMapping.join(", ") + "\n'Re-scan Codes' button click pannunga, appuram mapping pannunga.");
+      return;
+    }
+    const incomplete = [...usedCodes].filter(c=> !pdfCodeLegendDraft[c].department || !pdfCodeLegendDraft[c].year);
+    if(incomplete.length > 0){ alert("Ella code kum Department & Year select pannunga: " + incomplete.join(", ")); return; }
+
+    toast("Timetable save aagudhu...");
+    const batch = db.batch();
+    usedCodes.forEach(code=>{
+      const leg = pdfCodeLegendDraft[code];
+      const ref = db.collection("classCodeLegend").doc(code.toUpperCase());
+      batch.set(ref, { code, department: leg.department, year: leg.year, isLab: !!leg.isLab, subject: leg.subject || code }, { merge:true });
+    });
+    let entryCount = 0;
+    pdfParsedGrid.forEach(row=>{
+      const dow = pdfDayWeekdayDraft[row.dayLabel];
+      row.cells.forEach((code, idx)=>{
+        if(!code || !code.trim()) return;
+        const leg = pdfCodeLegendDraft[code.trim()];
+        if(!leg || !leg.department || !leg.year) return;
+        const period = `Period ${idx+1}`;
+        const [startTime, endTime] = PERIOD_TIMES[period] || ["",""];
+        const ref = db.collection("timetable").doc();
+        batch.set(ref, {
+          staffUsername: currentUser.username, staffName: currentUser.username,
+          dayOfWeek: dow, period, startTime, endTime,
+          department: leg.department, year: leg.year, section: "",
+          subject: leg.subject || code, sourceCode: code, isLab: !!leg.isLab,
+          createdAt: new Date().toISOString()
+        });
+        entryCount++;
+      });
+    });
+    await batch.commit();
+    toast(`Timetable upload aayiduchu ✅ ${entryCount} periods added`);
+    cancelPdfPreview();
+    loadMyTimetable();
+    if(currentUser.role === "staff") initStaffNotifications();
+  }catch(err){ alert("Save error: " + err.message); console.error(err); }
+}
+
+// ==========================================================
 // "GO TO CLASS" NOTIFICATIONS
 // Checks today's timetable and schedules an alert 5 minutes
 // before each period starts, while the app tab is open.

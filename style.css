@@ -5,3 +5,9 @@
 .class-alert-card #classAlertText{font-size:16px;font-weight:700;margin-bottom:16px;color:#111827}
 .class-alert-btns button{width:100%;margin:4px 0}
 .class-alert-btns .dismiss{background:#64748b}
+#pdfPreviewSection{margin-top:16px;padding-top:12px;border-top:2px dashed #cbd5e1}
+#pdfPreviewSection h3{margin:14px 0 8px;font-size:15px}
+.legend-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:#f8fafc;padding:8px 10px;border-radius:8px;margin-bottom:6px;font-size:14px}
+.legend-row b{min-width:120px}
+#pdfGridPreview table input{width:90px;font-size:12px;padding:4px}
+button.dismiss{background:#64748b}
