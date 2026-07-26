@@ -13,3 +13,7 @@
 button.dismiss{background:#64748b}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media (max-width:700px){.grid-2{grid-template-columns:1fr}}
+.edit-card{width:92vw;max-width:520px;max-height:88vh;overflow-y:auto;text-align:left}
+.edit-card h2{margin-top:0}
+.edit-card .grid{grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.edit-card input,.edit-card select{width:100%;box-sizing:border-box}

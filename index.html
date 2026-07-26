@@ -142,9 +142,43 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Photo</th><th>Name</th><th>Roll</th><th>Dept</th><th>Year</th><th>Parent</th><th>Notify</th></tr></thead>
+              <thead><tr><th>Photo</th><th>Name</th><th>Roll</th><th>Dept</th><th>Year</th><th>Parent</th><th>Notify</th><th id="editColHeader" class="hidden">Edit</th></tr></thead>
               <tbody id="studentTable"></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="editStudentModal" class="class-alert hidden">
+        <div class="class-alert-card edit-card">
+          <h2>Edit Student</h2>
+          <div class="grid">
+            <input id="eName" placeholder="Student Name"/>
+            <input id="eRoll" placeholder="Roll Number"/>
+            <input id="eReg" placeholder="Register Number"/>
+            <select id="eDept">
+              <option value="">Select Department</option>
+              <option>Computer Science</option><option>BCA</option><option>B.Com</option>
+              <option>BBA</option><option>Mathematics</option><option>English</option><option>Bio Tech</option><option>M.com</option><option>Hoteal Management</option>
+            </select>
+            <select id="eYear">
+              <option value="">Select Year</option>
+              <option>I Year</option><option>II Year</option><option>III Year</option>
+            </select>
+            <select id="eGender">
+              <option value="">Select Gender</option>
+              <option>Male</option><option>Female</option>
+            </select>
+            <input id="eSection" placeholder="Section"/>
+            <input id="ePhone" placeholder="Student Phone"/>
+            <input id="eParentPhone" placeholder="Parent Phone with country code"/>
+            <input id="eEmail" placeholder="Email"/>
+            <input id="eAddress" placeholder="Address"/>
+            <input id="ePhoto" type="file" accept="image/*"/>
+          </div>
+          <div class="class-alert-btns">
+            <button onclick="saveStudentEdit()">Update Student</button>
+            <button class="dismiss" onclick="closeEditStudentModal()">Cancel</button>
           </div>
         </div>
       </div>

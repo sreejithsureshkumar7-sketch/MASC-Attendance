@@ -164,8 +164,9 @@ async function saveStudent(){
 
 async function loadStudents(){
   try{
-    const snap = await db.collection("students").orderBy("roll","asc").get();
+    const snap = await db.collection("students").get();
     let students = snap.docs.map(d=>({id:d.id,...d.data()}));
+    students.sort((a,b)=> naturalCompare(a.roll||"", b.roll||""));
     const dept = $("filterDept") ? $("filterDept").value : "";
     const year = $("filterYear") ? $("filterYear").value : "";
     const search = $("searchStudent") ? $("searchStudent").value.toLowerCase() : "";
@@ -173,14 +174,85 @@ async function loadStudents(){
     if(year) students = students.filter(s=>s.year===year);
     if(search) students = students.filter(s=>(s.name||"").toLowerCase().includes(search) || (s.roll||"").toLowerCase().includes(search));
     studentsData = students;
+    const canEdit = currentUser && (currentUser.role === "admin" || currentUser.role === "hod");
+    if($("editColHeader")) $("editColHeader").classList.toggle("hidden", !canEdit);
     $("studentTable").innerHTML = students.map(s=>`
       <tr>
         <td>${s.photoURL ? `<img class="avatar" src="${s.photoURL}"/>` : "👤"}</td>
         <td>${s.name}</td><td>${s.roll}</td><td>${s.department}</td><td>${s.year}</td><td>${s.parentPhone}</td>
         <td><button class="sms" onclick="sendSMS('${s.parentPhone}','${s.name}')">SMS</button>
         <button class="wa" onclick="sendWhatsApp('${s.parentPhone}','${s.name}')">WhatsApp</button></td>
+        ${canEdit ? `<td><button onclick="editStudent('${s.id}')">Edit</button></td>` : ""}
       </tr>`).join("");
   }catch(err){ alert("Load students error: " + err.message); console.error(err); }
+}
+
+// Natural sort so roll numbers order correctly: 1,2,3...10 (not 1,10,2,3...)
+// and works fine for prefixed rolls like "21CS002" too.
+function naturalCompare(a, b){
+  const re = /(\d+)|(\D+)/g;
+  const ax = String(a).match(re) || [];
+  const bx = String(b).match(re) || [];
+  const len = Math.max(ax.length, bx.length);
+  for(let i=0; i<len; i++){
+    const av = ax[i] || "", bv = bx[i] || "";
+    const an = parseInt(av,10), bn = parseInt(bv,10);
+    if(!isNaN(an) && !isNaN(bn)){
+      if(an !== bn) return an - bn;
+    } else if(av !== bv){
+      return av < bv ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+let editingStudentId = null;
+
+function editStudent(id){
+  if(!currentUser || (currentUser.role !== "admin" && currentUser.role !== "hod")){
+    alert("Idha admin/HOD mattum thaan use panna mudiyum"); return;
+  }
+  const s = studentsData.find(st=>st.id===id);
+  if(!s){ alert("Student data kidaikala, list refresh pannunga"); return; }
+  editingStudentId = id;
+  $("eName").value = s.name || ""; $("eRoll").value = s.roll || ""; $("eReg").value = s.regNo || "";
+  $("eDept").value = s.department || ""; $("eYear").value = s.year || ""; $("eGender").value = s.gender || "";
+  $("eSection").value = s.section || ""; $("ePhone").value = s.phone || ""; $("eParentPhone").value = s.parentPhone || "";
+  $("eEmail").value = s.email || ""; $("eAddress").value = s.address || ""; $("ePhoto").value = "";
+  $("editStudentModal").classList.remove("hidden");
+}
+
+function closeEditStudentModal(){
+  $("editStudentModal").classList.add("hidden");
+  editingStudentId = null;
+}
+
+async function saveStudentEdit(){
+  if(!editingStudentId) return;
+  if(!currentUser || (currentUser.role !== "admin" && currentUser.role !== "hod")){
+    alert("Idha admin/HOD mattum thaan use panna mudiyum"); return;
+  }
+  try{
+    const updated = {
+      name: $("eName").value.trim(), roll: $("eRoll").value.trim(), regNo: $("eReg").value.trim(),
+      department: $("eDept").value, year: $("eYear").value, gender: $("eGender").value,
+      section: $("eSection").value.trim(), phone: $("ePhone").value.trim(),
+      parentPhone: $("eParentPhone").value.trim(), email: $("eEmail").value.trim(), address: $("eAddress").value.trim()
+    };
+    if(!updated.name || !updated.roll || !updated.department || !updated.year || !updated.parentPhone){
+      alert("Name, Roll, Department, Year, Parent Phone required"); return;
+    }
+    const photoFile = $("ePhoto").files[0];
+    if(photoFile){
+      const ref = storage.ref("student_photos/" + Date.now() + "_" + photoFile.name);
+      await ref.put(photoFile);
+      updated.photoURL = await ref.getDownloadURL();
+    }
+    await db.collection("students").doc(editingStudentId).update(updated);
+    toast("Student details updated ✅");
+    closeEditStudentModal();
+    loadStudents();
+  }catch(err){ alert("Update error: " + err.message); console.error(err); }
 }
 
 function getSelectedPeriods(){
